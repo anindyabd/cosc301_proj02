@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,9 +14,10 @@ void list_clear(Node *list) {
     }
 }
 
-void list_append(const char *data, Node **head) {
+void list_append(const char *data, const char *additional_data, Node **head) {
     Node *newnode = malloc(sizeof(Node));
     strcpy (newnode->data, data);
+    strcpy(newnode->additional_data, additional_data);
     newnode->next = NULL;
     struct node *curr = *head;
     if (curr == NULL) {
@@ -29,6 +31,37 @@ void list_append(const char *data, Node **head) {
     newnode->next = NULL;
 }
 
+void list_delete(const char *name, Node **head) {
+    if (*head != NULL && strcasecmp((*head)->data, name) == 0) {
+        struct node *tmp = *head;
+        *head = (*head)->next;
+        free(tmp);
+    }
+    else {
+        struct node *curr = *head;  
+        while (curr != NULL && curr->next != NULL) {
+            if (strcasecmp((curr->next)->data, name) == 0) {
+                struct node *tmp = curr->next;
+                curr->next = tmp->next;
+                free(tmp);
+                break;
+            }
+            curr = curr->next;  
+        }
+    }
+}
+
+int list_matches(const char *name, const struct node *head) {
+    const struct node *curr = head;
+    while (curr != NULL) {
+        if (strcasestr(curr->data, name) != NULL) {
+            return 1;
+        }
+        curr = curr->next;
+    }
+    return 0;
+    
+}
 
 
 
