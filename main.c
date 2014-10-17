@@ -1,5 +1,6 @@
 /*
     Anindya Guha
+    10/16/2014
  */
 #define _GNU_SOURCE
 #include <stdio.h>
@@ -77,22 +78,76 @@ char *replace_pound(char *str) {
 }
 
 /* 
- * Handles changing the mode and printing the current mode.
+ * Checks if the str is a valid int. Returns 0 if false, 1 if true.
  */
-char handle_mode(char **command, char *mode) { 
+int valid_int(char *str){
+
+    if (str == NULL || str[0] == '\0' || (isdigit(str[0]) == 0 && str[0] != '-')) {
+        return 0;
+    }
+    for(int i = 1; i < strlen(str); i++){
+        if (isdigit(str[i]) == 0) {
+            return 0;
+        } 
+    }
+    return 1;
+}
+
+/*
+ * Displays the prompt, which is the current working directory followed by '$'.
+ */
+void display_prompt() {
+    char prompt[1024];
+    memset(prompt, '\0', 1024);
+    if (getcwd(prompt, 1024) == NULL) { 
+        memset(prompt, '\0', 1024);
+        strcpy(prompt, "cmd ");    
+    }   
+    int len = strlen(prompt);
+    prompt[len + 1] = ' ';
+    prompt[len] = '$';
+    printf("%s", prompt);
+    fflush(stdout);
+}
+
+/*
+ * Checks if the command is 'mode' or one of the mode changing commands.
+ * Necessary so that I only call handle_mode() if the command is a mode command.
+ */
+int is_mode(char **command) {
     if (strcmp(command[0], "mode") == 0) {
-        if (command[1] == NULL) {
-            printf("%s\n", mode);
-            return mode[0];
-        }
-        else if (strcmp(command[1], "parallel") == 0 || strcmp(command[1], "p") == 0) {
-            return 'p';
+        if (command[1] == NULL) { 
+            return 1;
         }
         else if (strcmp(command[1], "sequential") == 0 || strcmp(command[1], "s") == 0) {
-            return 's';
+            return 2;
+        } 
+        else if (strcmp(command[1], "parallel") == 0 || strcmp(command[1], "p") == 0) {
+            return 3;
         }
     }
-    return mode[0];
+    return 0;
+}
+
+/* 
+ * Handles changing the mode (by returning the char representing the new (future) mode) and printing the current mode.
+ */
+char handle_mode(char **command, char curr_mode, char future_mode) { 
+    if (is_mode(command) == 1) {
+        if (curr_mode == 'p') {
+            printf("parallel\n");
+        }
+        else if (curr_mode == 's') {
+            printf("sequential\n");
+        }
+    }
+    if (is_mode(command) == 2) {
+        future_mode = 's';
+    }
+    if (is_mode(command) == 3) {
+        future_mode = 'p';
+    }
+    return future_mode;
 }
 
 /*
@@ -105,29 +160,17 @@ char handle_exit(char **command) {
     return 'n';
 }
 
-/*
- * Checks if the command is 'mode' or one of the mode changing commands.
- */
-int is_mode(char **command) {
-    if (strcmp(command[0], "mode") == 0) {
-        if (command[1] == NULL) { 
-            return 1;
-        }
-        else if (strcmp(command[1], "sequential") == 0 || strcmp(command[1], "s") == 0) {
-            return 1;
-        } 
-        else if (strcmp(command[1], "parallel") == 0 || strcmp(command[1], "p") == 0) {
-            return 1;
-        }
-    }
-    return 0;
-}
 
-int handle_parallel_builtins(char **command, Node **paused_list, Node **cpidlist, char *mode) {
+/*
+ * Handles the builtin methods (jobs, pause PID and resume PID) to support background processes in parallel mode.
+ * Returns 1 if the command is one of the three builtins, 0 if not.
+ */
+
+int handle_parallel_builtins(char **command, Node **paused_list, Node **cpidlist, char mode) {
     if (strcmp(command[0], "jobs") != 0 && strcmp(command[0], "pause") != 0 && strcmp(command[0], "resume") != 0) {
         return 0;
     }
-    else if (strcmp(mode, "parallel") != 0) {
+    else if (mode != 'p') {
         printf("This command is only supported in parallel mode.\n");
         return 0;
     }
@@ -146,7 +189,7 @@ int handle_parallel_builtins(char **command, Node **paused_list, Node **cpidlist
         }
     }
     else if(strcmp(command[0], "pause") == 0 && command[1] != NULL) {
-        if (isdigit(command[0])) {
+        if (valid_int(command[1])) {
             return_int = 1;
             pid_t pid = atoi(command[1]);
             if (kill(pid, SIGSTOP) == 0) {
@@ -158,16 +201,16 @@ int handle_parallel_builtins(char **command, Node **paused_list, Node **cpidlist
         }
     }
     else if(strcmp(command[0], "resume") == 0 && command[1] != NULL) {
-        if (isdigit(command[0])) {
+        if (valid_int(command[1]    )) {
             return_int = 1;
             pid_t pid = atoi(command[1]);
             if (!list_matches(command[1], *paused_list)) {
-                printf("You can't continue a process that's not paused!");
+                printf("Either that's not a process, or you're trying to continue a process that's not paused!\n");
             
             }
             else {
                 if (kill(pid, SIGCONT) == 0) {
-                    list_append(command[1], "", paused_list);
+                    list_delete(command[1], paused_list);
             }
                 else {
                     fprintf(stderr, "resume failed: %s\n", strerror(errno));
@@ -178,7 +221,6 @@ int handle_parallel_builtins(char **command, Node **paused_list, Node **cpidlist
     }
     return return_int;
 }
-
 
 /*
  * Prepends the paths in shell-config to the current command until a valid command is found  
@@ -207,7 +249,7 @@ char *prepend_path(char **command, Node *head) {
  * Runs commands in sequential mode.
  */
 char sequential_mode(char **pointers_to_commands, Node *head) {
-    char *mode = "sequential";
+    char mode = 's';
     pid_t cpid, w;
     char **command;
     char return_char = 's';
@@ -224,7 +266,7 @@ char sequential_mode(char **pointers_to_commands, Node *head) {
             return 'e';
         }
         if (return_char != 'e' && is_mode(command)) {
-            return_char = handle_mode(command, mode);
+            return_char = handle_mode(command, mode, return_char);
             i++;
             free_tokens(command);
             continue;
@@ -253,35 +295,23 @@ char sequential_mode(char **pointers_to_commands, Node *head) {
     }
     return return_char;
 }
-/*
- * Displays the prompt, which is the current working directory followed by '$'.
- */
-void display_prompt() {
-    char prompt[1024];
-    memset(prompt, '\0', 1024);
-    if (getcwd(prompt, 1024) == NULL) { 
-        memset(prompt, '\0', 1024);
-        strcpy(prompt, "cmd ");    
-    }   
-    int len = strlen(prompt);
-    prompt[len + 1] = ' ';
-    prompt[len] = '$';
-    printf("%s", prompt);
-    fflush(stdout);
-}
-
 
 /* 
- * Runs commands in parallel mode, with support for background processes. Things get a little messy (read: very messy) here.  
+ * Runs commands in parallel mode, with support for background processes.  
  */
 char parallel_mode(char **pointers_to_commands, Node *head, Node **paused_list, Node **cpidlist) {
 
+    int count = 0; // counts the no. of times we've been in the loop; 
+                    // if more than 1, we need to free
+                    // pointers_to_commands, which is different from what we got from main.
     while (1) {
-        int i = 0;
-        char *mode = "parallel";
+        count++;
+        char mode = 'p';
         pid_t cpid;
         char **command;
         char return_char = 'p';
+        int i = 0;
+
         while (pointers_to_commands[i] != NULL) {
             command = tokenify(pointers_to_commands[i], " \n\t");
             if (command[0] == NULL) {
@@ -301,7 +331,7 @@ char parallel_mode(char **pointers_to_commands, Node *head, Node **paused_list, 
                 continue;
             }
             if (is_mode(command)) {
-                return_char = handle_mode(command, mode);
+                return_char = handle_mode(command, mode, return_char);
                 if (return_char == 's') {
                     if (*cpidlist != NULL || pointers_to_commands[i+1] != NULL) {
                         printf("There are processes running. You cannot switch modes yet.\n");
@@ -343,8 +373,10 @@ char parallel_mode(char **pointers_to_commands, Node *head, Node **paused_list, 
             }
             i++;
             free_tokens(command);
+        }  
+        if (count > 1) {
+            free_tokens(pointers_to_commands);
         }
-
         if (return_char != 'p') {
             return return_char;
         }
@@ -358,7 +390,7 @@ char parallel_mode(char **pointers_to_commands, Node *head, Node **paused_list, 
         int some_process_completed = 0;
         while (1) {
             int status;
-            int rv = poll(&pfd[0], 1, 1000);
+            int rv = poll(&pfd[0], 1, 800);
             Node *to_delete_list = NULL;
             Node *tempcpidlist = *cpidlist;
             pid_t w;
@@ -366,27 +398,38 @@ char parallel_mode(char **pointers_to_commands, Node *head, Node **paused_list, 
                 some_process_completed = 0;
                 while (tempcpidlist != NULL) {
                     w = atoi(tempcpidlist->data);
-                    // I know that the ideal way is to use a macro such as WIFEXITED on status, but it wasn't working for me.
+                    // I know that the ideal way to check for child process death is to use a macro such as WIFEXITED on status, 
+                    // but it wasn't working for me.
                     // status always had the value 0. So I'm doing this instead to check for process completion.
                     if (waitpid(w, &status, WUNTRACED|WNOHANG) == -1) { 
                         list_append(tempcpidlist->data, "", &to_delete_list);
-                        printf("\nProcess %s completed.\n", tempcpidlist->data); 
+                        printf("\nProcess %s (%s) completed.\n", tempcpidlist->data, tempcpidlist->additional_data); 
                         some_process_completed = 1;
                     }
                     tempcpidlist = tempcpidlist->next;                 
                 }
-                while (to_delete_list != NULL) {
-                    list_delete(to_delete_list->data, cpidlist);
-                    to_delete_list = to_delete_list->next;
+                Node *curr = to_delete_list;
+                while (curr != NULL) {
+                    list_delete(curr->data, cpidlist);
+                    curr = curr->next;
                 }
+                list_clear(to_delete_list);
                 if (some_process_completed == 1) {
                     display_prompt();
+
                 }
             }
             else if (rv > 0) {
                 char buffer[1024];
                 if (fgets(buffer, 1024, stdin) == NULL) {
-
+                    if (*cpidlist != NULL) {
+                        printf("There are processes still running. You can't exit now.\n");
+                        display_prompt();
+                    }
+                    else {
+                        return_char = 'e';
+                        return return_char;
+                    }
                 }
                 else {
                     char *newbuffer = replace_pound(buffer);
@@ -437,12 +480,13 @@ int main(int argc, char **argv) {
         if (curr_mode == 's') {
             curr_mode = sequential_mode(pointers_to_commands, head); 
         }
-        else if (curr_mode == 'p') {
-            
+        else if (curr_mode == 'p') {  
             curr_mode = parallel_mode(pointers_to_commands, head, &paused_list, &cpidlist);
         } 
         if (curr_mode == 'e') {
             free_tokens(pointers_to_commands);
+            list_clear(paused_list);
+            list_clear(cpidlist);
             list_clear(head);
             exit(0);
         }
